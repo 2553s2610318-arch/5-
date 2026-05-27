@@ -1,50 +1,116 @@
 import streamlit as st
-import random
-import time
+from google import genai
+from google.genai import types
 
+# 페이지 설정
 st.set_page_config(
-    page_title="오늘의 AI 운세",
-    page_icon="🔮",
-    layout="centered"
+    page_title="연애상담 챗봇",
+    page_icon="💌",
 )
 
-st.title("🔮 오늘의 AI 운세")
-st.write("이름을 입력하고 오늘의 운세를 확인하세요!")
+st.title("💌 연애상담 챗봇")
+st.caption("Gemini 2.5 Flash Lite 기반")
 
-name = st.text_input("이름 입력")
+# API 키 불러오기
+try:
+    api_key = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    st.error("Secrets에 GEMINI_API_KEY를 설정해주세요.")
+    st.stop()
 
-fortunes = [
-    "오늘은 예상치 못한 행운이 찾아옵니다 🍀",
-    "커피를 마시면 좋은 아이디어가 떠오릅니다 ☕",
-    "누군가 당신에게 고마워할 일이 생깁니다 😊",
-    "코딩 실력이 +1 상승합니다 💻",
-    "오늘 밤 야식의 유혹을 조심하세요 🍗",
-    "새로운 도전을 시작하기 좋은 날입니다 🚀",
-    "버그 하나를 잡고 레벨업합니다 🐞",
-    "뜻밖의 메시지를 받게 됩니다 📩"
-]
+# Gemini 클라이언트 생성
+try:
+    client = genai.Client(api_key=api_key)
+except Exception as e:
+    st.error(f"Gemini 클라이언트 생성 실패: {e}")
+    st.stop()
 
-scores = {
-    "연애운 ❤️": random.randint(1, 100),
-    "금전운 💰": random.randint(1, 100),
-    "코딩운 👨‍💻": random.randint(1, 100),
-    "건강운 🏃": random.randint(1, 100),
-}
+# 채팅 기록 저장
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {
+            "role": "assistant",
+            "content": "안녕하세요 😊 연애 고민을 편하게 이야기해주세요!"
+        }
+    ]
 
-if st.button("운세 보기"):
-    if name.strip() == "":
-        st.warning("이름을 입력해주세요!")
-    else:
-        with st.spinner("AI가 운세를 분석 중입니다..."):
-            time.sleep(2)
+# 이전 채팅 출력
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-        st.success(f"{name}님의 오늘 운세!")
+# 사용자 입력
+prompt = st.chat_input("고민을 입력해주세요...")
 
-        st.subheader(random.choice(fortunes))
+if prompt:
+    # 사용자 메시지 저장
+    st.session_state.messages.append(
+        {
+            "role": "user",
+            "content": prompt
+        }
+    )
 
-        st.write("---")
+    # 사용자 메시지 출력
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-        for k, v in scores.items():
-            st.write(f"### {k}")
-            st.progress(v)
-            st.write(f"{v}점")
+    # AI 응답 생성
+    with st.chat_message("assistant"):
+        message_placeholder = st.empty()
+
+        try:
+            # Gemini용 대화 변환
+            history_text = ""
+
+            for msg in st.session_state.messages:
+                role = "사용자" if msg["role"] == "user" else "상담사"
+                history_text += f"{role}: {msg['content']}\n"
+
+            system_prompt = """
+            너는 공감 능력이 뛰어난 연애상담 전문가야.
+            사용자의 감정을 존중하고 따뜻하게 답변해.
+            너무 단정적으로 판단하지 말고 현실적인 조언을 제공해.
+            답변은 친근한 한국어로 작성해.
+            """
+
+            full_prompt = f"""
+            시스템 지침:
+            {system_prompt}
+
+            대화 기록:
+            {history_text}
+
+            상담사:
+            """
+
+            response = client.models.generate_content(
+                model="gemini-2.5-flash-lite",
+                contents=full_prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.8,
+                    max_output_tokens=500,
+                )
+            )
+
+            ai_response = response.text
+
+            message_placeholder.markdown(ai_response)
+
+            # 응답 저장
+            st.session_state.messages.append(
+                {
+                    "role": "assistant",
+                    "content": ai_response
+                }
+            )
+
+        except Exception as e:
+            error_message = f"""
+            ⚠️ 오류가 발생했습니다.
+
+            오류 내용:
+            {str(e)}
+            """
+
+            message_placeholder.error(error_message)
