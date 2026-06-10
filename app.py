@@ -1,116 +1,142 @@
 import streamlit as st
-from google import genai
-from google.genai import types
+import random
 
-# 페이지 설정
 st.set_page_config(
-    page_title="연애상담 챗봇",
-    page_icon="💌",
+    page_title="순서 정하기 앱",
+    page_icon="🎲",
+    layout="centered"
 )
 
-st.title("💌 연애상담 챗봇")
-st.caption("Gemini 2.5 Flash Lite 기반")
+st.title("🎲 순서 정하기 앱")
+st.caption("발표, 게임, 면접, 당번 등의 순서를 랜덤으로 정하고 진행 상황을 관리합니다.")
 
-# API 키 불러오기
-try:
-    api_key = st.secrets["GEMINI_API_KEY"]
-except Exception:
-    st.error("Secrets에 GEMINI_API_KEY를 설정해주세요.")
-    st.stop()
+# 세션 상태 초기화
+if "order" not in st.session_state:
+    st.session_state.order = []
 
-# Gemini 클라이언트 생성
-try:
-    client = genai.Client(api_key=api_key)
-except Exception as e:
-    st.error(f"Gemini 클라이언트 생성 실패: {e}")
-    st.stop()
+if "current_index" not in st.session_state:
+    st.session_state.current_index = -1
 
-# 채팅 기록 저장
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {
-            "role": "assistant",
-            "content": "안녕하세요 😊 연애 고민을 편하게 이야기해주세요!"
-        }
+if "generated" not in st.session_state:
+    st.session_state.generated = False
+
+
+def reset_all():
+    st.session_state.order = []
+    st.session_state.current_index = -1
+    st.session_state.generated = False
+
+
+st.subheader("참가자 입력")
+
+participants_text = st.text_area(
+    "이름을 한 줄에 한 명씩 입력하세요",
+    height=200,
+    placeholder="""홍길동
+김철수
+이영희
+박민수"""
+)
+
+col1, col2 = st.columns(2)
+
+with col1:
+    generate_btn = st.button("🎲 순서 생성", use_container_width=True)
+
+with col2:
+    reset_btn = st.button("🔄 초기화", use_container_width=True)
+
+if reset_btn:
+    reset_all()
+    st.rerun()
+
+if generate_btn:
+    participants = [
+        name.strip()
+        for name in participants_text.split("\n")
+        if name.strip()
     ]
 
-# 이전 채팅 출력
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+    if len(participants) == 0:
+        st.error("참가자를 1명 이상 입력해주세요.")
+    else:
+        random.shuffle(participants)
 
-# 사용자 입력
-prompt = st.chat_input("고민을 입력해주세요...")
+        st.session_state.order = participants
+        st.session_state.current_index = -1
+        st.session_state.generated = True
 
-if prompt:
-    # 사용자 메시지 저장
-    st.session_state.messages.append(
-        {
-            "role": "user",
-            "content": prompt
-        }
+if st.session_state.generated:
+
+    st.divider()
+
+    st.subheader("📋 생성된 순서")
+
+    for idx, person in enumerate(st.session_state.order, start=1):
+        st.write(f"{idx}. {person}")
+
+    st.divider()
+
+    total = len(st.session_state.order)
+    completed = max(0, st.session_state.current_index + 1)
+    remaining = total - completed
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("전체 인원", total)
+    col2.metric("완료", completed)
+    col3.metric("남은 인원", remaining)
+
+    st.subheader("▶ 진행 관리")
+
+    if st.session_state.current_index == -1:
+        st.info("아직 시작되지 않았습니다.")
+
+    elif st.session_state.current_index < total:
+        current_person = st.session_state.order[
+            st.session_state.current_index
+        ]
+
+        st.success(
+            f"현재 순서: {current_person}"
+        )
+
+    if st.session_state.current_index >= total:
+        st.balloons()
+        st.success("모든 순서가 완료되었습니다!")
+
+    next_btn = st.button(
+        "다음 순서",
+        use_container_width=True
     )
 
-    # 사용자 메시지 출력
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    if next_btn:
+        if st.session_state.current_index < total:
+            st.session_state.current_index += 1
+            st.rerun()
 
-    # AI 응답 생성
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
+    st.divider()
 
-        try:
-            # Gemini용 대화 변환
-            history_text = ""
+    st.subheader("✅ 완료된 사람")
 
-            for msg in st.session_state.messages:
-                role = "사용자" if msg["role"] == "user" else "상담사"
-                history_text += f"{role}: {msg['content']}\n"
+    completed_people = st.session_state.order[
+        :max(0, st.session_state.current_index + 1)
+    ]
 
-            system_prompt = """
-            너는 공감 능력이 뛰어난 연애상담 전문가야.
-            사용자의 감정을 존중하고 따뜻하게 답변해.
-            너무 단정적으로 판단하지 말고 현실적인 조언을 제공해.
-            답변은 친근한 한국어로 작성해.
-            """
+    if completed_people:
+        for person in completed_people:
+            st.write(f"✔ {person}")
+    else:
+        st.write("아직 없음")
 
-            full_prompt = f"""
-            시스템 지침:
-            {system_prompt}
+    st.subheader("⏳ 남은 사람")
 
-            대화 기록:
-            {history_text}
+    remaining_people = st.session_state.order[
+        max(0, st.session_state.current_index + 1):
+    ]
 
-            상담사:
-            """
-
-            response = client.models.generate_content(
-                model="gemini-2.5-flash-lite",
-                contents=full_prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.8,
-                    max_output_tokens=500,
-                )
-            )
-
-            ai_response = response.text
-
-            message_placeholder.markdown(ai_response)
-
-            # 응답 저장
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": ai_response
-                }
-            )
-
-        except Exception as e:
-            error_message = f"""
-            ⚠️ 오류가 발생했습니다.
-
-            오류 내용:
-            {str(e)}
-            """
-
-            message_placeholder.error(error_message)
+    if remaining_people:
+        for person in remaining_people:
+            st.write(f"• {person}")
+    else:
+        st.write("없음")
